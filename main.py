@@ -1,55 +1,121 @@
-import sys, json, subprocess
-from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QVBoxLayout, QComboBox, QMessageBox
+import sys, os, json, threading, subprocess
+from PyQt6.QtWidgets import *
 from PyQt6.QtGui import QFont, QPixmap
 from PyQt6.QtCore import Qt
-import threading
+import minecraft_launcher_lib
 import updater
 
-# Verificar actualizaciones
-threading.Thread(target=updater.update_from_github, daemon=True).start()
+# ================================
+# CONFIGURACIÓN
+# ================================
+MINECRAFT_DIR = os.path.join("data", ".minecraft")
+JAVA_PATH = os.path.join("data", "bin", "javaw.exe")
 
-class Launcher(QWidget):
+os.makedirs(MINECRAFT_DIR, exist_ok=True)
+
+# ================================
+# CLASE PRINCIPAL
+# ================================
+class Launcher(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Launcher GTS")
-        self.setFixedSize(700, 400)
+        self.setFixedSize(750, 450)
         self.setStyleSheet(open("assets/style.qss", "r").read())
-        self.setup_ui()
 
-    def setup_ui(self):
-        layout = QVBoxLayout()
+        # UI
+        central = QWidget()
+        layout = QVBoxLayout(central)
+
         logo = QLabel()
-        pixmap = QPixmap("assets/logo.png")
-        logo.setPixmap(pixmap.scaled(150, 150, Qt.AspectRatioMode.KeepAspectRatio))
+        logo.setPixmap(QPixmap("assets/logo.png").scaled(120, 120, Qt.AspectRatioMode.KeepAspectRatio))
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.version_box = QComboBox()
-        self.version_box.addItems(["1.20.1", "1.19.2", "1.18.2"])
         self.version_box.setObjectName("combo")
 
-        play_button = QPushButton("Jugar")
-        play_button.clicked.connect(self.launch_game)
-        play_button.setObjectName("btnPlay")
+        # Cargar versiones disponibles
+        threading.Thread(target=self.load_versions, daemon=True).start()
+
+        self.status_label = QLabel("Listo")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.play_button = QPushButton("▶ JUGAR")
+        self.play_button.setObjectName("btnPlay")
+        self.play_button.clicked.connect(self.launch_game)
 
         layout.addWidget(logo)
-        layout.addWidget(QLabel("Versión de Minecraft:"))
+        layout.addWidget(QLabel("Selecciona versión de Minecraft:"))
         layout.addWidget(self.version_box)
-        layout.addWidget(play_button)
-        self.setLayout(layout)
+        layout.addWidget(self.play_button)
+        layout.addWidget(self.status_label)
+        self.setCentralWidget(central)
 
+        # Revisar actualizaciones
+        threading.Thread(target=updater.update_from_github, daemon=True).start()
+
+    # ================================
+    # CARGAR VERSIONES DISPONIBLES
+    # ================================
+    def load_versions(self):
+        try:
+            versions = minecraft_launcher_lib.utils.get_available_versions()
+            for v in versions:
+                if "release" in v["type"]:
+                    self.version_box.addItem(v["id"])
+        except Exception as e:
+            self.status_label.setText(f"Error al cargar versiones: {e}")
+
+    # ================================
+    # DESCARGAR E INICIAR EL JUEGO
+    # ================================
     def launch_game(self):
         version = self.version_box.currentText()
-        QMessageBox.information(self, "Iniciando", f"Preparando Minecraft {version}...")
+        self.play_button.setEnabled(False)
+        self.status_label.setText(f"Descargando Minecraft {version}...")
 
-        java_path = "data/bin/javaw.exe"
-        if not os.path.exists(java_path):
-            QMessageBox.critical(self, "Error", "No se encontró javaw.exe en data/bin/")
-            return
+        def run():
+            try:
+                # Crear carpeta si no existe
+                os.makedirs(MINECRAFT_DIR, exist_ok=True)
 
-        # Ejemplo: lanzar Minecraft con versión seleccionada
-        subprocess.Popen([java_path, "-jar", f"data/versions/{version}.jar"])
-        self.close()
+                # Instalar versión automáticamente
+                minecraft_launcher_lib.install.install_minecraft_version(version, MINECRAFT_DIR)
 
+                # Datos de inicio de sesión offline
+                options = {
+                    "username": "JugadorGTS",
+                    "uuid": "00000000-0000-0000-0000-000000000000",
+                    "token": "null"
+                }
+
+                # Configuración del juego
+                launch_options = {
+                    "username": "JugadorGTS",
+                    "uuid": options["uuid"],
+                    "token": options["token"],
+                    "executablePath": JAVA_PATH,
+                    "jvmArguments": ["-Xmx2G"]
+                }
+
+                # Obtener comando de inicio
+                cmd = minecraft_launcher_lib.command.get_minecraft_command(
+                    version, MINECRAFT_DIR, launch_options
+                )
+
+                self.status_label.setText("Iniciando Minecraft...")
+                subprocess.Popen(cmd, cwd=MINECRAFT_DIR)
+                self.close()
+
+            except Exception as e:
+                self.status_label.setText(f"Error: {e}")
+                self.play_button.setEnabled(True)
+
+        threading.Thread(target=run, daemon=True).start()
+
+# ================================
+# MAIN APP
+# ================================
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     launcher = Launcher()
