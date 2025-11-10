@@ -1,6 +1,7 @@
 import os, sys, json, threading, subprocess
 import minecraft_launcher_lib
-from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox, QMessageBox
+from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox, QMessageBox, QSpacerItem, QSizePolicy
+from PyQt6.QtGui import QPixmap, QPalette, QBrush
 from PyQt6.QtCore import Qt
 import updater
 
@@ -8,39 +9,64 @@ class Launcher(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Launcher GTS")
-        self.resize(500, 350)
+        self.resize(600, 400)
+
+        # --- Estilo visual ---
         self.setStyleSheet("""
-            QWidget {
-                background-color: #141414;
-                color: white;
+            QLabel, QPushButton, QComboBox {
                 font-family: 'Segoe UI';
-                font-size: 14px;
+                color: white;
             }
             QPushButton {
-                background-color: #242424;
-                border: 1px solid #3a3a3a;
+                background-color: rgba(25,25,25,0.85);
                 border-radius: 8px;
                 padding: 8px;
+                border: 1px solid #3a3a3a;
             }
             QPushButton:hover {
-                background-color: #2d2d2d;
+                background-color: rgba(40,40,40,0.9);
             }
             QComboBox {
-                background-color: #1f1f1f;
+                background-color: rgba(30,30,30,0.85);
                 border-radius: 6px;
-                padding: 5px;
-                color: white;
+                padding: 6px;
             }
         """)
 
+        # --- Fondo ---
+        bg_path = os.path.join("assets", "bg.jpg")
+        if os.path.exists(bg_path):
+            palette = QPalette()
+            palette.setBrush(QPalette.ColorRole.Window, QBrush(QPixmap(bg_path).scaled(600, 400, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)))
+            self.setPalette(palette)
+
+        # --- Layout principal ---
         layout = QVBoxLayout()
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+        # Logo
+        logo_path = os.path.join("assets", "logo.png")
+        if os.path.exists(logo_path):
+            logo_label = QLabel()
+            pixmap = QPixmap(logo_path).scaled(160, 160, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            logo_label.setPixmap(pixmap)
+            logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(logo_label)
+
+        layout.addSpacerItem(QSpacerItem(0, 10, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed))
+
+        # Estado
         self.status_label = QLabel("Iniciando launcher...")
-        layout.addWidget(self.status_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.status_label)
 
+        layout.addSpacerItem(QSpacerItem(0, 10, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed))
+
+        # Selector de versión
         self.version_box = QComboBox()
         layout.addWidget(self.version_box)
 
+        # Botones
         self.refresh_button = QPushButton("🔄 Actualizar launcher y archivos")
         self.refresh_button.clicked.connect(lambda: threading.Thread(target=self.run_update, daemon=True).start())
         layout.addWidget(self.refresh_button)
@@ -51,10 +77,10 @@ class Launcher(QWidget):
 
         self.setLayout(layout)
 
-        # Cargar configuración
+        # --- Configuración ---
         self.config = self.load_config()
 
-        # Iniciar procesos paralelos
+        # --- Tareas paralelas ---
         threading.Thread(target=self.load_versions, daemon=True).start()
         threading.Thread(target=self.run_update, daemon=True).start()
 
