@@ -33,36 +33,21 @@ class Launcher(QWidget):
             }
         """)
 
-# --- Fondo ---
-bg_path = os.path.join("assets", "bg.jpg")
-if os.path.exists(bg_path):
-    self.bg_pixmap = QPixmap(bg_path)
-    palette = QPalette()
-    palette.setBrush(
-        QPalette.ColorRole.Window,
-        QBrush(self.bg_pixmap.scaled(
-            self.size(),
-            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-            Qt.TransformationMode.SmoothTransformation
-        ))
-    )
-    self.setPalette(palette)
-
-# Redibujar el fondo al cambiar el tamaño de la ventana
-def resizeEvent(self, event):
-    super().resizeEvent(event)
-    bg_path = os.path.join("assets", "bg.jpg")
-    if os.path.exists(bg_path):
-        palette = QPalette()
-        palette.setBrush(
-            QPalette.ColorRole.Window,
-            QBrush(self.bg_pixmap.scaled(
-                self.size(),
-                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                Qt.TransformationMode.SmoothTransformation
-            ))
-        )
-        self.setPalette(palette)
+        # --- Fondo dinámico ---
+        self.bg_pixmap = None
+        bg_path = os.path.join("assets", "bg.jpg")
+        if os.path.exists(bg_path):
+            self.bg_pixmap = QPixmap(bg_path)
+            palette = QPalette()
+            palette.setBrush(
+                QPalette.ColorRole.Window,
+                QBrush(self.bg_pixmap.scaled(
+                    self.size(),
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation
+                ))
+            )
+            self.setPalette(palette)
 
         # --- Layout principal ---
         layout = QVBoxLayout()
@@ -107,6 +92,21 @@ def resizeEvent(self, event):
         # --- Tareas paralelas ---
         threading.Thread(target=self.load_versions, daemon=True).start()
         threading.Thread(target=self.run_update, daemon=True).start()
+
+    # --- Redimensionar fondo dinámicamente ---
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.bg_pixmap:
+            palette = QPalette()
+            palette.setBrush(
+                QPalette.ColorRole.Window,
+                QBrush(self.bg_pixmap.scaled(
+                    self.size(),
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation
+                ))
+            )
+            self.setPalette(palette)
 
     def load_config(self):
         config_path = "config.json"
@@ -166,4 +166,3 @@ if __name__ == "__main__":
     launcher = Launcher()
     launcher.show()
     sys.exit(app.exec())
-
