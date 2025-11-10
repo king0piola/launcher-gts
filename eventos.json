@@ -1,0 +1,7 @@
+{
+    "eventos": [
+        { "nombre": "Mantecadeath", "activo": true },
+        { "nombre": "Salvando la Navidad", "activo": true },
+        { "nombre": "???", "activo": false }
+    ]
+}

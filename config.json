@@ -1,0 +1,5 @@
+{
+    "launcher_version": "1.0.0",
+    "github_repo": "https://github.com/king0piola/launcher-gts",
+    "update_files": ["events.json", "mods/version.json", "main.py"]
+}
