@@ -1,34 +1,60 @@
 import os
-import json
+import hashlib
 import requests
-from pathlib import Path
+import zipfile
+import io
+import shutil
 
-def update_from_github():
-    """Descarga actualizaciones desde GitHub automáticamente."""
+GITHUB_REPO = "https://github.com/king0piola/launcher-gts"
+GITHUB_ZIP = GITHUB_REPO + "/archive/refs/heads/main.zip"
+LOCAL_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMP_DIR = os.path.join(LOCAL_DIR, "update_temp")
+
+def file_hash(path):
+    if not os.path.exists(path):
+        return None
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        h.update(f.read())
+    return h.hexdigest()
+
+def check_for_updates():
     try:
-        with open("config.json", "r") as f:
-            config = json.load(f)
+        # Descarga el repo comprimido
+        if os.path.exists(TEMP_DIR):
+            shutil.rmtree(TEMP_DIR)
+        os.makedirs(TEMP_DIR)
 
-        repo = config["github_repo"].rstrip("/")
-        version_url = f"{repo}/raw/main/config.json"
-        remote_version = requests.get(version_url, timeout=5).json()["launcher_version"]
+        print("Descargando el repositorio...")
+        r = requests.get(GITHUB_ZIP, timeout=30)
+        with zipfile.ZipFile(io.BytesIO(r.content)) as zip_ref:
+            zip_ref.extractall(TEMP_DIR)
 
-        if remote_version != config["launcher_version"]:
-            print(f"[Updater] Nueva versión detectada ({remote_version}), actualizando...")
-            for file in config["update_files"]:
-                url = f"{repo}/raw/main/{file}"
-                r = requests.get(url, timeout=10)
-                if r.status_code == 200:
-                    os.makedirs(os.path.dirname(file), exist_ok=True)
-                    with open(file, "wb") as f_out:
-                        f_out.write(r.content)
-                        print(f"✅ Archivo actualizado: {file}")
+        extracted_root = os.path.join(TEMP_DIR, os.listdir(TEMP_DIR)[0])
+        updated = False
 
-            config["launcher_version"] = remote_version
-            with open("config.json", "w") as f:
-                json.dump(config, f, indent=4)
-            print("✅ Actualización completada, reinicia el launcher.")
-        else:
-            print("[Updater] No hay actualizaciones disponibles.")
+        # Recorre todos los archivos del repo
+        for root, _, files in os.walk(extracted_root):
+            for file in files:
+                rel_path = os.path.relpath(os.path.join(root, file), extracted_root)
+                local_path = os.path.join(LOCAL_DIR, rel_path)
+
+                # Ignora carpetas temporales
+                if "update_temp" in local_path:
+                    continue
+
+                os.makedirs(os.path.dirname(local_path), exist_ok=True)
+                new_file = os.path.join(root, file)
+
+                # Compara hash del archivo local vs remoto
+                if file_hash(local_path) != file_hash(new_file):
+                    shutil.copy2(new_file, local_path)
+                    updated = True
+                    print(f"Archivo actualizado: {rel_path}")
+
+        shutil.rmtree(TEMP_DIR)
+        return updated
+
     except Exception as e:
-        print(f"[Updater] Error: {e}")
+        print(f"Error al verificar actualizaciones: {e}")
+        return False
