@@ -1,6 +1,6 @@
 import sys, os, json, threading, subprocess
 from PyQt6.QtWidgets import *
-from PyQt6.QtGui import QFont, QPixmap
+from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt
 import minecraft_launcher_lib
 import updater
@@ -34,14 +34,12 @@ class Launcher(QMainWindow):
         self.version_box = QComboBox()
         self.version_box.setObjectName("combo")
 
-        # Cargar versiones disponibles
-        threading.Thread(target=self.load_versions, daemon=True).start()
-
-        self.status_label = QLabel("Listo")
+        self.status_label = QLabel("Cargando versiones de Minecraft...")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.play_button = QPushButton("▶ JUGAR")
         self.play_button.setObjectName("btnPlay")
+        self.play_button.setEnabled(False)
         self.play_button.clicked.connect(self.launch_game)
 
         layout.addWidget(logo)
@@ -54,15 +52,22 @@ class Launcher(QMainWindow):
         # Revisar actualizaciones
         threading.Thread(target=updater.update_from_github, daemon=True).start()
 
+        # Cargar versiones después de construir toda la interfaz
+        threading.Thread(target=self.load_versions, daemon=True).start()
+
     # ================================
     # CARGAR VERSIONES DISPONIBLES
     # ================================
     def load_versions(self):
         try:
-            versions = minecraft_launcher_lib.utils.get_available_versions()
+            versions = minecraft_launcher_lib.utils.get_available_versions(MINECRAFT_DIR)
             for v in versions:
-                if "release" in v["type"]:
+                if v.get("type") == "release":
                     self.version_box.addItem(v["id"])
+
+            self.status_label.setText("Versiones cargadas.")
+            self.play_button.setEnabled(True)
+
         except Exception as e:
             self.status_label.setText(f"Error al cargar versiones: {e}")
 
@@ -76,13 +81,12 @@ class Launcher(QMainWindow):
 
         def run():
             try:
-                # Crear carpeta si no existe
                 os.makedirs(MINECRAFT_DIR, exist_ok=True)
 
                 # Instalar versión automáticamente
                 minecraft_launcher_lib.install.install_minecraft_version(version, MINECRAFT_DIR)
 
-                # Datos de inicio de sesión offline
+                # Datos de inicio offline
                 options = {
                     "username": "JugadorGTS",
                     "uuid": "00000000-0000-0000-0000-000000000000",
@@ -91,7 +95,7 @@ class Launcher(QMainWindow):
 
                 # Configuración del juego
                 launch_options = {
-                    "username": "JugadorGTS",
+                    "username": options["username"],
                     "uuid": options["uuid"],
                     "token": options["token"],
                     "executablePath": JAVA_PATH,
