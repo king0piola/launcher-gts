@@ -9,7 +9,7 @@ class Launcher(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Launcher GTS")
-        self.resize(600, 400)
+        self.resize(1024, 640)
 
         # --- Estilo visual ---
         self.setStyleSheet("""
