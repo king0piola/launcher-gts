@@ -1,0 +1,29 @@
+QWidget {
+    background-color: #181a20;
+    color: #f0f0f0;
+    font-family: 'Segoe UI';
+}
+
+QLabel {
+    color: #d8d8d8;
+    font-size: 15px;
+}
+
+QPushButton#btnPlay {
+    background-color: #4b67ff;
+    border-radius: 10px;
+    padding: 10px 25px;
+    font-weight: bold;
+    font-size: 16px;
+}
+
+QPushButton#btnPlay:hover {
+    background-color: #6a82ff;
+}
+
+QComboBox#combo {
+    background-color: #2c2c3b;
+    border-radius: 6px;
+    padding: 6px;
+    font-size: 14px;
+}
