@@ -7,27 +7,43 @@ import platform
 from pathlib import Path
 
 import minecraft_launcher_lib
-from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-                            QLabel, QPushButton, QComboBox, QMessageBox,
-                            QSpacerItem, QSizePolicy, QProgressBar, QFrame,
-                            QTextEdit, QSplitter)
-from PyQt6.QtGui import QPixmap, QPalette, QBrush, QFont, QColor, QLinearGradient, QMovie
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
-import updater
 
+from PyQt6.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QPushButton, QComboBox, QMessageBox,
+    QSpacerItem, QSizePolicy, QProgressBar, QFrame,
+    QTextEdit, QSplitter
+)
+
+from PyQt6.QtGui import (
+    QPixmap, QPalette, QBrush, QColor,
+    QLinearGradient, QMovie
+)
+
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
+
+# -------------------------------
+#        SISTEMA DE SEÑALES
+# -------------------------------
 
 class Signals(QObject):
-    status_updated = pyqtSignal(str)
-    progress_updated = pyqtSignal(int)
-    versions_loaded = pyqtSignal(list)
+    status = pyqtSignal(str)
+    progress = pyqtSignal(int)
+    versions = pyqtSignal(list)
     update_finished = pyqtSignal(list)
 
+
+# -------------------------------
+#        MAIN LAUNCHER
+# -------------------------------
 
 class ModernLauncher(QWidget):
     def __init__(self):
         super().__init__()
+
         self.signals = Signals()
-        self.setup_signals()
+        self.connect_signals()
+
         self.init_ui()
         self.load_config()
 
@@ -35,359 +51,288 @@ class ModernLauncher(QWidget):
         threading.Thread(target=self.load_versions, daemon=True).start()
         threading.Thread(target=self.check_initial_updates, daemon=True).start()
 
-    def setup_signals(self):
-        self.signals.status_updated.connect(self.update_status)
-        self.signals.progress_updated.connect(self.update_progress)
-        self.signals.versions_loaded.connect(self.populate_versions)
+    # -------------------------------
+    #      CONECTAR SEÑALES
+    # -------------------------------
+    def connect_signals(self):
+        self.signals.status.connect(self.update_status)
+        self.signals.progress.connect(self.update_progress)
+        self.signals.versions.connect(self.populate_versions)
         self.signals.update_finished.connect(self.on_update_finished)
 
+    # -------------------------------
+    #      INTERFAZ GRÁFICA
+    # -------------------------------
     def init_ui(self):
         self.setWindowTitle("GTS Studio Launcher")
         self.setFixedSize(1000, 700)
-        self.setStyleSheet(self.get_stylesheet())
+        self.setStyleSheet(self.styles())
 
-        # MAIN LAYOUT
         main_layout = QHBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)
 
-        # LEFT PANEL
-        left_panel = QFrame()
-        left_panel.setObjectName("leftPanel")
-        left_layout = QVBoxLayout()
-        left_layout.setContentsMargins(30, 30, 30, 30)
+        # PANEL IZQUIERDO
+        left_panel = self.left_panel()
 
-        logo_path = os.path.join("assets", "logo.png")
-        if os.path.exists(logo_path):
-            logo_label = QLabel()
-            pixmap = QPixmap(logo_path).scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            logo_label.setPixmap(pixmap)
-            logo_label.setAlignment(Qt.AlignCenter)
-            left_layout.addWidget(logo_label)
+        # PANEL DERECHO
+        right_panel = self.right_panel()
 
-        title = QLabel("GTS Studio")
-        title.setObjectName("title")
-        title.setAlignment(Qt.AlignCenter)
-        left_layout.addWidget(title)
-
-        left_layout.addSpacerItem(QSpacerItem(0, 20, QSizePolicy.Minimum, QSizePolicy.Fixed))
-
-        # STATUS
-        self.status_label = QLabel("Inicializando launcher...")
-        self.status_label.setObjectName("statusLabel")
-        self.status_label.setAlignment(Qt.AlignCenter)
-        left_layout.addWidget(self.status_label)
-
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        self.progress_bar.setMaximumHeight(6)
-        left_layout.addWidget(self.progress_bar)
-
-        left_layout.addSpacerItem(QSpacerItem(0, 30, QSizePolicy.Minimum, QSizePolicy.Fixed))
-
-        # CONTROLES
-        controls_frame = QFrame()
-        controls_frame.setObjectName("controlsFrame")
-        controls_layout = QVBoxLayout()
-
-        version_label = QLabel("Versión de Minecraft:")
-        version_label.setObjectName("sectionLabel")
-        controls_layout.addWidget(version_label)
-
-        self.version_box = QComboBox()
-        self.version_box.setObjectName("versionBox")
-        controls_layout.addWidget(self.version_box)
-
-        controls_layout.addSpacerItem(QSpacerItem(0, 15, QSizePolicy.Minimum, QSizePolicy.Fixed))
-
-        self.play_button = QPushButton("🎮 Iniciar Minecraft")
-        self.play_button.setObjectName("playButton")
-        self.play_button.clicked.connect(self.launch_game)
-        controls_layout.addWidget(self.play_button)
-
-        self.update_button = QPushButton("🔄 Actualizar Launcher")
-        self.update_button.setObjectName("secondaryButton")
-        self.update_button.clicked.connect(self.run_update)
-        controls_layout.addWidget(self.update_button)
-
-        controls_frame.setLayout(controls_layout)
-        left_layout.addWidget(controls_frame)
-
-        left_layout.addStretch()
-
-        sys_info = QLabel(f"Sistema: {platform.system()} {platform.release()}")
-        sys_info.setObjectName("sysInfo")
-        left_layout.addWidget(sys_info)
-
-        left_panel.setLayout(left_layout)
-
-        # RIGHT PANEL (CONSOLE)
-        right_panel = QFrame()
-        right_panel.setObjectName("rightPanel")
-        right_layout = QVBoxLayout()
-        right_layout.setContentsMargins(20, 20, 20, 20)
-
-        console_label = QLabel("Consola")
-        console_label.setObjectName("sectionLabel")
-        right_layout.addWidget(console_label)
-
-        self.console_output = QTextEdit()
-        self.console_output.setObjectName("consoleOutput")
-        self.console_output.setReadOnly(True)
-        right_layout.addWidget(self.console_output)
-
-        right_panel.setLayout(right_layout)
-
-        # Splitter
-        splitter = QSplitter(Qt.Horizontal)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(left_panel)
         splitter.addWidget(right_panel)
-        splitter.setSizes([400, 600])
+        splitter.setSizes([380, 620])
         splitter.setHandleWidth(2)
 
         main_layout.addWidget(splitter)
         self.setLayout(main_layout)
 
-        # Fondo GIF
         self.setup_background()
 
-    def get_stylesheet(self):
-        return """
-            QWidget {
-                font-family: 'Segoe UI', 'Arial';
-                color: #e0e0e0;
-            }
+    # -------------------------------
+    #   PANEL IZQUIERDO (CONTROLES)
+    # -------------------------------
+    def left_panel(self):
+        frame = QFrame()
+        frame.setObjectName("leftPanel")
 
-            #leftPanel {
-                background: rgba(30, 30, 46, 0.80);
-                border-right: 1px solid #444;
-            }
+        layout = QVBoxLayout()
+        layout.setContentsMargins(30, 30, 30, 30)
 
-            #rightPanel {
-                background: rgba(20, 20, 30, 0.65);
-            }
+        # LOGO
+        logo_path = "assets/logo.png"
+        if os.path.exists(logo_path):
+            logo_label = QLabel()
+            pixmap = QPixmap(logo_path).scaled(110, 110, Qt.AspectRatioMode.KeepAspectRatio)
+            logo_label.setPixmap(pixmap)
+            logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(logo_label)
 
-            #title {
-                font-size: 28px;
-                font-weight: bold;
-                color: #89c4f4;
-                margin: 10px 0px;
-            }
+        title = QLabel("GTS Studio")
+        title.setObjectName("title")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
 
-            #statusLabel {
-                font-size: 14px;
-                padding: 8px 12px;
-                background: rgba(0, 0, 0, 0.3);
-                border-radius: 8px;
-                border: 1px solid #444;
-            }
+        layout.addSpacerItem(QSpacerItem(0, 20))
 
-            #sectionLabel {
-                font-size: 14px;
-                font-weight: bold;
-                color: #89c4f4;
-                margin-bottom: 5px;
-            }
+        # STATUS
+        self.status_label = QLabel("Inicializando launcher…")
+        self.status_label.setObjectName("statusLabel")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.status_label)
 
-            #controlsFrame {
-                background: rgba(0, 0, 0, 0.2);
-                border-radius: 12px;
-                padding: 15px;
-                border: 1px solid #444;
-            }
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setMaximumHeight(6)
+        layout.addWidget(self.progress_bar)
 
-            QProgressBar {
-                border: none;
-                border-radius: 3px;
-                background: rgba(0, 0, 0, 0.3);
-            }
+        layout.addSpacerItem(QSpacerItem(0, 30))
 
-            QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #89c4f4, stop:1 #6789f4);
-                border-radius: 3px;
-            }
+        # CONTROLES
+        controls = QFrame()
+        controls.setObjectName("controlsFrame")
+        c_layout = QVBoxLayout()
 
-            #versionBox {
-                background: rgba(0, 0, 0, 0.3);
-                border: 1px solid #555;
-                border-radius: 8px;
-                padding: 8px 12px;
-            }
+        version_label = QLabel("Versión de Minecraft:")
+        version_label.setObjectName("sectionLabel")
 
-            #playButton {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #67b26f, stop:1 #4ca2cd);
-                border: none;
-                border-radius: 10px;
-                padding: 12px;
-                font-size: 16px;
-                font-weight: bold;
-                color: white;
-            }
+        c_layout.addWidget(version_label)
 
-            #secondaryButton {
-                background: rgba(60, 60, 80, 0.7);
-                border: 1px solid #555;
-                border-radius: 8px;
-                padding: 10px;
-                font-size: 14px;
-            }
+        self.version_box = QComboBox()
+        self.version_box.setObjectName("versionBox")
+        c_layout.addWidget(self.version_box)
 
-            #consoleOutput {
-                background: rgba(0, 0, 0, 0.3);
-                border: 1px solid #444;
-                border-radius: 8px;
-                font-family: Consolas;
-                font-size: 12px;
-                color: #a0a0a0;
-                padding: 10px;
-            }
+        c_layout.addSpacerItem(QSpacerItem(0, 20))
 
-            #sysInfo {
-                font-size: 11px;
-                color: #888;
-                text-align: center;
-            }
-        """
+        # BOTÓN JUGAR
+        self.play_button = QPushButton("🎮 Iniciar Minecraft")
+        self.play_button.setObjectName("playButton")
+        self.play_button.clicked.connect(self.launch_game)
+        c_layout.addWidget(self.play_button)
 
-    # ---------------------------------------------------------
-    #                    FONDO ANIMADO GIF
-    # ---------------------------------------------------------
+        # BOTÓN ACTUALIZAR
+        self.update_button = QPushButton("🔄 Actualizar Launcher")
+        self.update_button.setObjectName("secondaryButton")
+        self.update_button.clicked.connect(self.run_update)
+        c_layout.addWidget(self.update_button)
+
+        controls.setLayout(c_layout)
+        layout.addWidget(controls)
+        layout.addStretch()
+
+        # Info del sistema
+        sys_info = QLabel(f"Sistema: {platform.system()} {platform.release()}")
+        sys_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sys_info.setObjectName("sysInfo")
+        layout.addWidget(sys_info)
+
+        frame.setLayout(layout)
+        return frame
+
+    # -------------------------------
+    #      PANEL DERECHO (CONSOLA)
+    # -------------------------------
+    def right_panel(self):
+        frame = QFrame()
+        frame.setObjectName("rightPanel")
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        label = QLabel("Consola")
+        label.setObjectName("sectionLabel")
+        layout.addWidget(label)
+
+        self.console_output = QTextEdit()
+        self.console_output.setObjectName("consoleOutput")
+        self.console_output.setReadOnly(True)
+        layout.addWidget(self.console_output)
+
+        frame.setLayout(layout)
+        return frame
+
+    # -------------------------------
+    #       FONDO ANIMADO GIF
+    # -------------------------------
     def setup_background(self):
-        gif_path = os.path.join("assets", "bg.gif")
+        gif_path = "assets/bg.gif"
 
         if os.path.exists(gif_path):
             self.movie = QMovie(gif_path)
             self.movie.frameChanged.connect(self.update_gif_frame)
             self.movie.start()
         else:
-            self.setAutoFillBackground(True)
-            palette = self.palette()
             gradient = QLinearGradient(0, 0, 0, self.height())
             gradient.setColorAt(0, QColor(30, 30, 50))
             gradient.setColorAt(1, QColor(20, 20, 30))
-            palette.setBrush(QPalette.Window, QBrush(gradient))
+
+            palette = self.palette()
+            palette.setBrush(QPalette.ColorRole.Window, QBrush(gradient))
             self.setPalette(palette)
 
     def update_gif_frame(self):
-        frame = self.movie.currentPixmap()
-        if not frame.isNull():
-            scaled = frame.scaled(
-                self.size(),
-                Qt.KeepAspectRatioByExpanding,
-                Qt.SmoothTransformation
-            )
-            palette = QPalette()
-            palette.setBrush(QPalette.Window, QBrush(scaled))
-            self.setPalette(palette)
+        pixmap = self.movie.currentPixmap()
+        if pixmap.isNull():
+            return
+
+        scaled = pixmap.scaled(
+            self.size(),
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation
+        )
+
+        palette = QPalette()
+        palette.setBrush(QPalette.ColorRole.Window, QBrush(scaled))
+        self.setPalette(palette)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, "movie"):
             self.update_gif_frame()
 
-    # ---------------------------------------------------------
-
+    # -------------------------------
+    #       CONFIGURACIÓN
+    # -------------------------------
     def load_config(self):
-        config_path = "config.json"
+        path = "config.json"
         system = platform.system().lower()
 
-        if system == "windows":
-            default_java = "data/bin/javaw.exe"
-        elif system == "darwin":
-            default_java = "data/bin/java"
-        else:
-            default_java = "data/bin/java"
+        default_java = {
+            "windows": "data/bin/javaw.exe",
+            "darwin": "data/bin/java",
+            "linux": "data/bin/java"
+        }.get(system, "java")
 
-        if not os.path.exists(config_path):
-            default_config = {
+        if not os.path.exists(path):
+            base = {
                 "minecraft_dir": "data/.minecraft",
                 "java_path": default_java,
                 "max_ram": "4096",
                 "username": "JugadorGTS"
             }
-            with open(config_path, "w") as f:
-                json.dump(default_config, f, indent=4)
+            with open(path, "w") as f:
+                json.dump(base, f, indent=4)
 
-        with open(config_path, "r") as f:
-            self.config = json.load(f)
+        self.config = json.load(open(path, "r"))
 
-        if not os.path.exists(self.config["java_path"]):
-            self.config["java_path"] = "java"
+    # -------------------------------
+    #      ACTUALIZACIÓN DE UI
+    # -------------------------------
+    def update_status(self, text):
+        self.status_label.setText(text)
+        self.console_output.append(f"[INFO] {text}")
 
-    def update_status(self, message):
-        self.status_label.setText(message)
-        self.console_output.append(f"[INFO] {message}")
+    def update_progress(self, p):
+        self.progress_bar.setValue(p)
+        self.progress_bar.setVisible(p > 0 and p < 100)
 
-    def update_progress(self, value):
-        self.progress_bar.setValue(value)
-        self.progress_bar.setVisible(value > 0 and value < 100)
-
+    # -------------------------------
+    #      VERSIONES DE MINECRAFT
+    # -------------------------------
     def populate_versions(self, versions):
         self.version_box.clear()
-        for version in versions:
-            self.version_box.addItem(version["id"])
+        for v in versions:
+            self.version_box.addItem(v["id"])
+
         self.update_status(f"Versiones cargadas: {len(versions)}")
 
     def load_versions(self):
         try:
-            mc_dir = self.config["minecraft_dir"]
-            os.makedirs(mc_dir, exist_ok=True)
+            mc = self.config["minecraft_dir"]
+            os.makedirs(mc, exist_ok=True)
 
-            self.signals.status_updated.emit("Buscando versiones disponibles...")
-            versions = minecraft_launcher_lib.utils.get_available_versions(mc_dir)
+            self.signals.status.emit("Buscando versiones disponibles…")
 
-            release_versions = [v for v in versions if v["type"] == "release"]
-            self.signals.versions_loaded.emit(release_versions)
+            all_versions = minecraft_launcher_lib.utils.get_available_versions(mc)
+            releases = [v for v in all_versions if v["type"] == "release"]
 
+            self.signals.versions.emit(releases)
         except Exception as e:
-            self.signals.status_updated.emit(f"Error cargando versiones: {str(e)}")
+            self.signals.status.emit(f"Error cargando versiones: {e}")
 
+    # -------------------------------
+    #       ACTUALIZADOR
+    # -------------------------------
     def check_initial_updates(self):
-        self.signals.status_updated.emit("Verificando actualizaciones...")
+        self.signals.status.emit("Verificando actualizaciones...")
         try:
-            updated_files = updater.check_for_updates()
-            if updated_files:
-                self.signals.update_finished.emit(updated_files)
-            else:
-                self.signals.status_updated.emit("Launcher listo ✅")
+            import updater
+            updated = updater.check_for_updates()
+            self.signals.update_finished.emit(updated)
         except Exception as e:
-            self.signals.status_updated.emit(f"Error en actualización: {str(e)}")
+            self.signals.status.emit(f"Error en actualización: {e}")
 
     def run_update(self):
         threading.Thread(target=self.check_initial_updates, daemon=True).start()
 
-    def on_update_finished(self, updated_files):
-        if updated_files:
-            self.update_status(f"Actualizados {len(updated_files)} archivos ✅")
+    def on_update_finished(self, updated):
+        if updated:
+            self.update_status(f"Actualizados {len(updated)} archivos ✔")
         else:
-            self.update_status("Todo está actualizado ✅")
+            self.update_status("Todo está actualizado ✔")
 
+    # -------------------------------
+    #       LANZAR MINECRAFT
+    # -------------------------------
     def launch_game(self):
         if self.version_box.count() == 0:
             QMessageBox.warning(self, "Error", "No hay versiones disponibles")
             return
 
         self.play_button.setEnabled(False)
-        threading.Thread(target=self._launch_game_thread, daemon=True).start()
+        threading.Thread(target=self._launch_thread, daemon=True).start()
 
-    def _launch_game_thread(self):
+    def _launch_thread(self):
         try:
-            mc_dir = self.config["minecraft_dir"]
-            java_path = self.config["java_path"]
-            selected_version = self.version_box.currentText()
+            mc = self.config["minecraft_dir"]
+            java = self.config["java_path"]
+            version = self.version_box.currentText()
 
-            self.signals.status_updated.emit(f"Instalando versión {selected_version}...")
-            self.signals.progress_updated.emit(30)
-
+            self.signals.status.emit(f"Instalando {version}…")
             minecraft_launcher_lib.install.install_minecraft_version(
-                selected_version,
-                mc_dir,
-                callback=self._install_callback
+                version, mc, callback=self._install_callback
             )
 
-            self.signals.progress_updated.emit(80)
-            self.signals.status_updated.emit("Iniciando Minecraft...")
+            self.signals.status.emit("Iniciando Minecraft…")
 
             options = {
                 "username": self.config.get("username", "JugadorGTS"),
@@ -395,50 +340,129 @@ class ModernLauncher(QWidget):
                 "token": "",
                 "jvmArguments": [
                     f"-Xmx{self.config.get('max_ram', '4096')}M",
-                    "-XX:+UnlockExperimentalVMOptions",
-                    "-XX:+UseG1GC",
-                    "-XX:G1NewSizePercent=20",
-                    "-XX:G1ReservePercent=20",
-                    "-XX:MaxGCPauseMillis=50",
-                    "-XX:G1HeapRegionSize=32M"
+                    "-XX:+UseG1GC"
                 ]
             }
 
-            command = minecraft_launcher_lib.command.get_minecraft_command(
-                selected_version, mc_dir, options
+            cmd = minecraft_launcher_lib.command.get_minecraft_command(
+                version, mc, options
             )
-            command[0] = java_path
+            cmd[0] = java
 
-            self.signals.progress_updated.emit(100)
-            subprocess.Popen(command, cwd=mc_dir)
+            subprocess.Popen(cmd, cwd=mc)
 
-            self.signals.status_updated.emit("Minecraft iniciado ✅")
-            QTimer.singleShot(2000, lambda: self.signals.progress_updated.emit(0))
+            self.signals.progress.emit(100)
+            self.signals.status.emit("Minecraft iniciado ✔")
+
+            QTimer.singleShot(2000, lambda: self.signals.progress.emit(0))
 
         except Exception as e:
-            self.signals.status_updated.emit(f"Error: {str(e)}")
-            QMessageBox.critical(self, "Error", f"No se pudo iniciar Minecraft:\n{str(e)}")
+            self.signals.status.emit(f"Error: {e}")
         finally:
             self.play_button.setEnabled(True)
 
-    def _install_callback(self, progress_type, current, total):
-        if progress_type == "downloading":
-            percent = int((current / total) * 50)
-            self.signals.progress_updated.emit(percent)
-        elif progress_type == "extracting":
-            percent = 50 + int((current / total) * 30)
-            self.signals.progress_updated.emit(percent)
+    def _install_callback(self, t, cur, tot):
+        if tot == 0:
+            return
+        if t == "downloading":
+            self.signals.progress.emit(int((cur / tot) * 50))
+        elif t == "extracting":
+            self.signals.progress.emit(50 + int((cur / tot) * 40))
+
+    # -------------------------------
+    #        ESTILOS CSS
+    # -------------------------------
+    def styles(self):
+        return """
+        QWidget {
+            font-family: 'Segoe UI';
+            color: #e0e0e0;
+        }
+
+        #leftPanel {
+            background: rgba(30,30,46,0.82);
+            border-right: 1px solid #444;
+        }
+
+        #rightPanel {
+            background: rgba(20,20,30,0.65);
+        }
+
+        #title {
+            font-size: 28px;
+            font-weight: bold;
+            color: #89c4f4;
+            margin-top: 10px;
+        }
+
+        #statusLabel {
+            padding: 8px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            border: 1px solid #444;
+        }
+
+        #sectionLabel {
+            font-size: 14px;
+            font-weight: bold;
+            color: #89c4f4;
+            margin-bottom: 5px;
+        }
+
+        #controlsFrame {
+            background: rgba(0,0,0,0.25);
+            padding: 15px;
+            border-radius: 14px;
+            border: 1px solid #444;
+        }
+
+        #versionBox {
+            background: rgba(0,0,0,0.3);
+            padding: 8px;
+            border-radius: 8px;
+            border: 1px solid #555;
+        }
+
+        #playButton {
+            background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                stop:0 #67b26f, stop:1 #4ca2cd);
+            border: none;
+            padding: 12px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        #secondaryButton {
+            background: rgba(60,60,80,0.7);
+            border: 1px solid #555;
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        #consoleOutput {
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            font-family: Consolas;
+            font-size: 12px;
+            border: 1px solid #444;
+            padding: 10px;
+        }
+
+        #sysInfo {
+            font-size: 11px;
+            color: #aaa;
+        }
+        """
 
 
+# -------------------------------
+#              MAIN
+# -------------------------------
 if __name__ == "__main__":
-    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
-
     app = QApplication(sys.argv)
-    app.setEffectEnabled(Qt.UIEffect.UI_AnimateCombo, False)
 
     launcher = ModernLauncher()
     launcher.show()
 
     sys.exit(app.exec())
-
