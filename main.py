@@ -79,7 +79,13 @@ class ModernLauncher(QWidget):
         logo_path = "assets/logo.png"
         if os.path.exists(logo_path):
             logo = QLabel()
-            pix = QPixmap(logo_path).scaled(110, 110, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            pix = QPixmap(logo_path).scaled(
+            110,
+            110,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+            )
+
             logo.setPixmap(pix)
             logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
             left_layout.addWidget(logo)
@@ -432,3 +438,4 @@ if __name__ == "__main__":
     launcher.show()
 
     sys.exit(app.exec())
+
