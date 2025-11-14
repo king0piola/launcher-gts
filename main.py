@@ -1,280 +1,429 @@
 import os
 import sys
 import json
-import urllib.request
-import platform
-from pathlib import Path
 import threading
+import subprocess
+import platform
+import urllib.request
+from pathlib import Path
 
 import minecraft_launcher_lib
 
-from PyQt6.QtCore import Qt, QTimer, QSize
-from PyQt6.QtGui import QMovie
+# PyQt6 imports
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QComboBox, QMessageBox, QSpacerItem, QSizePolicy, QProgressBar, QFrame,
     QTextEdit, QSplitter
 )
+from PyQt6.QtGui import QPixmap, QPalette, QBrush, QColor, QLinearGradient, QMovie
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
 
 
 # ---------------------------------------------------------
-#  SEÑALES MULTIHILO
+# SIGNALS
 # ---------------------------------------------------------
-from PyQt6.QtCore import QObject, pyqtSignal
-
-class WorkerSignals(QObject):
-    progress = pyqtSignal(int)
-    status = pyqtSignal(str)
-    finish = pyqtSignal()
+class Signals(QObject):
+    status_updated = pyqtSignal(str)
+    progress_updated = pyqtSignal(int)
+    versions_loaded = pyqtSignal(list)
 
 
 # ---------------------------------------------------------
-#  LANZADOR PRINCIPAL
+# MAIN LAUNCHER
 # ---------------------------------------------------------
 class ModernLauncher(QWidget):
-
     def __init__(self):
         super().__init__()
 
-        self.signals = WorkerSignals()
-        self.signals.progress.connect(self.on_progress)
-        self.signals.status.connect(self.update_status)
-        self.signals.finish.connect(self.on_finish)
+        self.signals = Signals()
+        self.setup_signals()
 
-        self.launcher_version = ""
+        self.launcher_version = "0.0.0"
         self.mods_list = []
         self.mods_base_url = ""
 
-        # leer version.json antes de la UI
-        self.load_version_info()
-
         self.init_ui()
         self.load_config()
+        self.load_version_json()
+
+        threading.Thread(target=self.load_versions, daemon=True).start()
+
+
+    # ----------------------------------------
+    # SIGNALS
+    # ----------------------------------------
+    def setup_signals(self):
+        self.signals.status_updated.connect(self.update_status)
+        self.signals.progress_updated.connect(self.update_progress)
+        self.signals.versions_loaded.connect(self.populate_versions)
+
+
+    # ----------------------------------------
+    # UI
+    # ----------------------------------------
+    def init_ui(self):
+        self.setWindowTitle("GTS Studio Launcher")
+        self.setFixedSize(1000, 700)
+
+        main_layout = QHBoxLayout()
+        main_layout.setContentsMargins(0, 0, 0, 0)
+
+        # LEFT PANEL
+        left_panel = QFrame()
+        left_panel.setObjectName("leftPanel")
+
+        left_layout = QVBoxLayout()
+        left_layout.setContentsMargins(30, 30, 30, 30)
+
+        # LOGO
+        logo_path = "assets/logo.png"
+        if os.path.exists(logo_path):
+            logo = QLabel()
+            pix = QPixmap(logo_path).scaled(110, 110, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            logo.setPixmap(pix)
+            logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            left_layout.addWidget(logo)
+
+        # TITLE
+        title = QLabel("GTS Studio")
+        title.setObjectName("title")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        left_layout.addWidget(title)
+
+        left_layout.addSpacerItem(QSpacerItem(1, 20))
+
+        # STATUS
+        self.status_label = QLabel("Inicializando...")
+        self.status_label.setObjectName("statusLabel")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        left_layout.addWidget(self.status_label)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMaximumHeight(6)
+        self.progress_bar.setVisible(False)
+        left_layout.addWidget(self.progress_bar)
+
+        left_layout.addSpacerItem(QSpacerItem(1, 20))
+
+        # CONTROLS FRAME
+        controls = QFrame()
+        layout_c = QVBoxLayout()
+
+        lbl_v = QLabel("Versión de Minecraft:")
+        lbl_v.setObjectName("sectionLabel")
+        layout_c.addWidget(lbl_v)
+
+        self.version_box = QComboBox()
+        self.version_box.setObjectName("versionBox")
+        layout_c.addWidget(self.version_box)
+
+        layout_c.addSpacerItem(QSpacerItem(1, 15))
+
+        # PLAY BUTTON
+        self.play_button = QPushButton("🎮 Iniciar Minecraft")
+        self.play_button.setObjectName("playButton")
+        self.play_button.clicked.connect(self.launch_game)
+        layout_c.addWidget(self.play_button)
+
+        controls.setLayout(layout_c)
+        left_layout.addWidget(controls)
+
+        left_layout.addStretch()
+
+        os_label = QLabel(f"Sistema: {platform.system()} {platform.release()}")
+        os_label.setObjectName("sysInfo")
+        left_layout.addWidget(os_label)
+
+        left_panel.setLayout(left_layout)
+
+        # RIGHT PANEL (CONSOLE)
+        right_panel = QFrame()
+        right_panel.setObjectName("rightPanel")
+
+        rlayout = QVBoxLayout()
+        label_console = QLabel("Consola")
+        label_console.setObjectName("sectionLabel")
+        rlayout.addWidget(label_console)
+
+        self.console_output = QTextEdit()
+        self.console_output.setReadOnly(True)
+        rlayout.addWidget(self.console_output)
+
+        right_panel.setLayout(rlayout)
+
+        # SPLITTER
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.addWidget(left_panel)
+        splitter.addWidget(right_panel)
+        splitter.setSizes([350, 650])
+
+        main_layout.addWidget(splitter)
+        self.setLayout(main_layout)
+
+        self.setup_background()
+        self.apply_stylesheet()
+
+
+    # ----------------------------------------
+    # STYLESHEET
+    # ----------------------------------------
+    def apply_stylesheet(self):
+
+        self.setStyleSheet("""
+            QWidget {
+                font-family: 'Segoe UI';
+                color: #e6e6e6;
+            }
+
+            #leftPanel {
+                background: rgba(30, 30, 46, 0.82);
+                border-right: 1px solid #444;
+            }
+
+            #rightPanel {
+                background: rgba(20, 20, 30, 0.60);
+            }
+
+            #title {
+                font-size: 26px;
+                font-weight: bold;
+                color: #89c4f4;
+            }
+
+            #statusLabel {
+                background: rgba(0, 0, 0, 0.35);
+                padding: 6px;
+                border-radius: 8px;
+                border: 1px solid #444;
+            }
+
+            #sectionLabel {
+                color: #88bdf2;
+                font-size: 13px;
+                font-weight: bold;
+            }
+
+            #versionBox {
+                background: rgba(0,0,0,0.25);
+                border-radius: 8px;
+                padding: 6px;
+                border: 1px solid #555;
+            }
+
+            #playButton {
+                background: linear-gradient(#67b26f, #4ca2cd);
+                padding: 10px;
+                font-size: 16px;
+                color: white;
+                border-radius: 10px;
+                border: none;
+                font-weight: bold;
+            }
+
+            #consoleOutput {
+                background: rgba(0,0,0,0.35);
+                border-radius: 8px;
+                padding: 10px;
+                font-family: Consolas;
+                font-size: 12px;
+                border: 1px solid #444;
+            }
+
+            #sysInfo {
+                font-size: 11px;
+                color: #aaa;
+            }
+        """)
+
+
+    # ----------------------------------------
+    # BACKGROUND GIF
+    # ----------------------------------------
+    def setup_background(self):
+        gif_path = "assets/bg.gif"
+        if not os.path.exists(gif_path):
+            return
+
+        self.movie = QMovie(gif_path)
+        self.movie.frameChanged.connect(self.update_gif_frame)
+        self.movie.start()
+
+    def update_gif_frame(self):
+        pix = self.movie.currentPixmap()
+        if pix.isNull():
+            return
+
+        scaled = pix.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+        pal = QPalette()
+        pal.setBrush(QPalette.ColorRole.Window, QBrush(scaled))
+        self.setPalette(pal)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "movie"):
+            self.update_gif_frame()
 
 
     # ---------------------------------------------------------
-    #  LEER version.json DESDE LOCAL O GITHUB
+    # CONFIG
     # ---------------------------------------------------------
-    def load_version_info(self):
+    def load_config(self):
+        if not os.path.exists("config.json"):
+            config = {
+                "minecraft_dir": "data/.minecraft",
+                "java_path": "java",
+                "max_ram": "4096",
+                "username": "JugadorGTS"
+            }
+            with open("config.json", "w") as f:
+                json.dump(config, f, indent=4)
+
+        with open("config.json") as f:
+            self.config = json.load(f)
+
+
+
+    # ---------------------------------------------------------
+    # VERSION.JSON READING
+    # ---------------------------------------------------------
+    def load_version_json(self):
         url = "https://raw.githubusercontent.com/king0piola/launcher-gts/main/version.json"
-        file_path = "version.json"
 
         try:
-            # Si no existe, lo descarga
-            if not os.path.exists(file_path):
-                urllib.request.urlretrieve(url, file_path)
+            urllib.request.urlretrieve(url, "version.json")
 
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open("version.json", "r", encoding="utf-8") as f:
                 data = json.load(f)
 
             self.launcher_version = data.get("launcher_version", "0.0.0")
             self.mods_list = data.get("mods", [])
             self.mods_base_url = data.get("mods_base_url", "")
 
+            self.update_status(f"Launcher versión {self.launcher_version}")
+
         except Exception as e:
-            self.launcher_version = "0.0.0"
-            self.mods_list = []
-            self.mods_base_url = ""
-            print("Error leyendo version.json:", e)
+            self.update_status(f"Error leyendo version.json: {e}")
 
 
     # ---------------------------------------------------------
-    #  DESCARGA AUTOMÁTICA DE MODS
+    # DOWNLOAD MODS
     # ---------------------------------------------------------
     def download_mods(self):
-        """
-        Descarga todos los mods en la carpeta .minecraft/mods/
-        """
         try:
-            game_dir = Path(minecraft_launcher_lib.utils.get_minecraft_directory())
-            mods_folder = game_dir / "mods"
-            mods_folder.mkdir(parents=True, exist_ok=True)
-
-            if not self.mods_base_url or not self.mods_list:
-                self.update_status("No hay mods para descargar.")
-                return
+            mc_dir = Path(self.config["minecraft_dir"])
+            mods_dir = mc_dir / "mods"
+            mods_dir.mkdir(parents=True, exist_ok=True)
 
             for mod in self.mods_list:
                 url = self.mods_base_url + mod
-                output = mods_folder / mod
+                path = mods_dir / mod
 
-                self.update_status(f"Descargando mod: {mod}")
+                self.update_status(f"Descargando mod {mod}")
+                urllib.request.urlretrieve(url, path)
 
-                try:
-                    urllib.request.urlretrieve(url, output)
-                except Exception as e:
-                    self.update_status(f"Error descargando {mod}: {e}")
-
-            self.update_status("Mods instalados correctamente.")
+            self.update_status("Mods descargados correctamente")
 
         except Exception as e:
-            self.update_status(f"Error general descargando mods: {e}")
+            self.update_status(f"Error descargando mods: {e}")
 
 
     # ---------------------------------------------------------
-    #  UI PRINCIPAL
+    # LOAD MINECRAFT VERSIONS
     # ---------------------------------------------------------
-    def init_ui(self):
-        self.setWindowTitle("GTS Launcher")
-        self.setGeometry(200, 100, 1100, 650)
-
-        main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-
-        # -------- LADO IZQUIERDO PANEL --------
-        left_panel = QFrame()
-        left_panel.setObjectName("leftPanel")
-        left_layout = QVBoxLayout(left_panel)
-
-        # versión del launcher
-        version_label = QLabel(f"Launcher v{self.launcher_version}")
-        version_label.setObjectName("versionLabel")
-        version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        left_layout.addWidget(version_label)
-
-        # selector de versión de Minecraft
-        self.version_combo = QComboBox()
-        left_layout.addWidget(self.version_combo)
-
-        # botón de jugar
-        self.play_btn = QPushButton("Jugar")
-        self.play_btn.clicked.connect(self.play)
-        left_layout.addWidget(self.play_btn)
-
-        left_layout.addStretch()
-
-        # -------- LADO DERECHO: FONDO GIF + CONSOLA --------
-        right_panel = QFrame()
-        right_layout = QVBoxLayout(right_panel)
-
-        self.gif_label = QLabel()
-        self.gif_label.setFixedHeight(350)
-        self.gif_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        movie = QMovie("bg.gif")
-        movie.setScaledSize(QSize(900, 350))
-        self.gif_label.setMovie(movie)
-        movie.start()
-
-        right_layout.addWidget(self.gif_label)
-
-        # consola
-        self.console = QTextEdit()
-        self.console.setReadOnly(True)
-        right_layout.addWidget(self.console)
-
-        # progress
-        self.progress = QProgressBar()
-        right_layout.addWidget(self.progress)
-
-        # SPLITTER
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(left_panel)
-        splitter.addWidget(right_panel)
-        splitter.setSizes([250, 850])
-
-        main_layout.addWidget(splitter)
-
-        # estilos
-        self.setStyleSheet(self.styles())
-
-
-    # ---------------------------------------------------------
-    #  ESTILOS CSS
-    # ---------------------------------------------------------
-    def styles(self):
-        return """
-        #leftPanel {
-            background: #1b1b1b;
-        }
-        #versionLabel {
-            color: #ccc;
-            font-size: 12px;
-            margin-top: 10px;
-        }
-        QPushButton {
-            background: #3a3a3a;
-            color: white;
-            padding: 10px;
-            border-radius: 6px;
-        }
-        QPushButton:hover {
-            background: #505050;
-        }
-        QComboBox {
-            background: #3a3a3a;
-            color: white;
-            padding: 5px;
-        }
-        QTextEdit {
-            background: #111;
-            color: #0f0;
-            font-family: Consolas;
-            font-size: 12px;
-        }
-        """
-
-
-    # ---------------------------------------------------------
-    #  LOGS EN CONSOLA
-    # ---------------------------------------------------------
-    def update_status(self, text):
-        self.console.append(text)
-
-
-    # ---------------------------------------------------------
-    #  PROGRESO
-    # ---------------------------------------------------------
-    def on_progress(self, val):
-        self.progress.setValue(val)
-
-    def on_finish(self):
-        self.update_status("Listo.")
-
-
-    # ---------------------------------------------------------
-    #  CARGA CONFIG
-    # ---------------------------------------------------------
-    def load_config(self):
+    def load_versions(self):
         try:
-            self.update_status("Cargando versiones...")
-            versions = minecraft_launcher_lib.utils.get_version_list()
-            for v in versions:
-                self.version_combo.addItem(v["id"])
-        except:
-            self.update_status("No se pudieron cargar versiones.")
+            mc_dir = self.config["minecraft_dir"]
+            os.makedirs(mc_dir, exist_ok=True)
+
+            versions = minecraft_launcher_lib.utils.get_available_versions(mc_dir)
+            filtered = [v for v in versions if v["type"] == "release"]
+
+            self.signals.versions_loaded.emit(filtered)
+
+        except Exception as e:
+            self.update_status(f"Error cargando versiones: {e}")
+
+
+    def populate_versions(self, versions):
+        self.version_box.clear()
+        for v in versions:
+            self.version_box.addItem(v["id"])
+
+        self.update_status(f"Versiones cargadas: {len(versions)}")
 
 
     # ---------------------------------------------------------
-    #  BOTÓN JUGAR
+    # STATUS + PROGRESS
     # ---------------------------------------------------------
-    def play(self):
-        threading.Thread(target=self.run_game, daemon=True).start()
+    def update_status(self, msg):
+        self.status_label.setText(msg)
+        self.console_output.append(f"[INFO] {msg}")
 
-    def run_game(self):
-        version = self.version_combo.currentText()
+    def update_progress(self, v):
+        self.progress_bar.setVisible(v > 0 and v < 100)
+        self.progress_bar.setValue(v)
 
-        self.update_status("Descargando mods...")
-        self.download_mods()
 
-        self.update_status("Iniciando Minecraft...")
+    # ---------------------------------------------------------
+    # LAUNCH GAME
+    # ---------------------------------------------------------
+    def launch_game(self):
 
-        game_directory = minecraft_launcher_lib.utils.get_minecraft_directory()
+        self.play_button.setEnabled(False)
 
-        options = {
-            "username": "Player",
-            "uuid": "",
-            "token": ""
-        }
+        threading.Thread(target=self._launch_thread, daemon=True).start()
 
-        minecraft_launcher_lib.command.run_command(version, game_directory, options)
 
-        self.update_status("Minecraft cerrado.")
+    def _launch_thread(self):
+        try:
+            version = self.version_box.currentText()
+            mc_dir = self.config["minecraft_dir"]
+
+            self.update_status(f"Instalando {version}...")
+            minecraft_launcher_lib.install.install_minecraft_version(
+                version, mc_dir, callback=self._install_callback
+            )
+
+            # Mods
+            self.update_status("Descargando mods...")
+            self.download_mods()
+
+            # Run game
+            self.update_status("Iniciando Minecraft...")
+
+            options = {
+                "username": self.config["username"],
+                "uuid": "",
+                "token": "",
+                "jvmArguments": [
+                    f"-Xmx{self.config['max_ram']}M"
+                ]
+            }
+
+            cmd = minecraft_launcher_lib.command.get_minecraft_command(version, mc_dir, options)
+            cmd[0] = self.config["java_path"]
+
+            subprocess.Popen(cmd, cwd=mc_dir)
+
+            self.update_status("Minecraft iniciado ✔️")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+
+        finally:
+            self.play_button.setEnabled(True)
+
+
+    def _install_callback(self, type, cur, tot):
+        if tot == 0:
+            return
+        percent = int((cur / tot) * 100)
+        self.signals.progress_updated.emit(percent)
 
 
 
 # ---------------------------------------------------------
-#  MAIN
+# MAIN
 # ---------------------------------------------------------
 if __name__ == "__main__":
     app = QApplication(sys.argv)
