@@ -50,6 +50,26 @@ class ModernLauncher(QWidget):
 
 
     # ----------------------------------------
+    # ROUTE FIX — ALWAYS SAFE
+    # ----------------------------------------
+    def get_mc_dir(self):
+        default_path = Path.home() / ".gts_minecraft"
+
+        mc_dir = Path(self.config.get("minecraft_dir", str(default_path)))
+        mc_dir.mkdir(parents=True, exist_ok=True)
+
+        if "minecraft_dir" not in self.config:
+            self.config["minecraft_dir"] = str(mc_dir)
+            self.save_config()
+
+        return mc_dir
+
+    def save_config(self):
+        with open("config.json", "w") as f:
+            json.dump(self.config, f, indent=4)
+
+
+    # ----------------------------------------
     # SIGNALS
     # ----------------------------------------
     def setup_signals(self):
@@ -80,10 +100,10 @@ class ModernLauncher(QWidget):
         if os.path.exists(logo_path):
             logo = QLabel()
             pix = QPixmap(logo_path).scaled(
-            110,
-            110,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation
+                110,
+                110,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
             )
 
             logo.setPixmap(pix)
@@ -226,15 +246,6 @@ class ModernLauncher(QWidget):
                 font-weight: bold;
             }
 
-            #consoleOutput {
-                background: rgba(0,0,0,0.35);
-                border-radius: 8px;
-                padding: 10px;
-                font-family: Consolas;
-                font-size: 12px;
-                border: 1px solid #444;
-            }
-
             #sysInfo {
                 font-size: 11px;
                 color: #aaa;
@@ -275,18 +286,17 @@ class ModernLauncher(QWidget):
     # ---------------------------------------------------------
     def load_config(self):
         if not os.path.exists("config.json"):
-            config = {
-                "minecraft_dir": "data/.minecraft",
+            cfg = {
+                "minecraft_dir": str(Path.home() / ".gts_minecraft"),
                 "java_path": "java",
                 "max_ram": "4096",
                 "username": "JugadorGTS"
             }
             with open("config.json", "w") as f:
-                json.dump(config, f, indent=4)
+                json.dump(cfg, f, indent=4)
 
         with open("config.json") as f:
             self.config = json.load(f)
-
 
 
     # ---------------------------------------------------------
@@ -316,7 +326,7 @@ class ModernLauncher(QWidget):
     # ---------------------------------------------------------
     def download_mods(self):
         try:
-            mc_dir = Path(self.config["minecraft_dir"])
+            mc_dir = self.get_mc_dir()
             mods_dir = mc_dir / "mods"
             mods_dir.mkdir(parents=True, exist_ok=True)
 
@@ -338,8 +348,7 @@ class ModernLauncher(QWidget):
     # ---------------------------------------------------------
     def load_versions(self):
         try:
-            mc_dir = self.config["minecraft_dir"]
-            os.makedirs(mc_dir, exist_ok=True)
+            mc_dir = self.get_mc_dir()
 
             versions = minecraft_launcher_lib.utils.get_available_versions(mc_dir)
             filtered = [v for v in versions if v["type"] == "release"]
@@ -374,16 +383,14 @@ class ModernLauncher(QWidget):
     # LAUNCH GAME
     # ---------------------------------------------------------
     def launch_game(self):
-
         self.play_button.setEnabled(False)
-
         threading.Thread(target=self._launch_thread, daemon=True).start()
 
 
     def _launch_thread(self):
         try:
             version = self.version_box.currentText()
-            mc_dir = self.config["minecraft_dir"]
+            mc_dir = self.get_mc_dir()
 
             self.update_status(f"Instalando {version}...")
             minecraft_launcher_lib.install.install_minecraft_version(
@@ -438,4 +445,3 @@ if __name__ == "__main__":
     launcher.show()
 
     sys.exit(app.exec())
-
