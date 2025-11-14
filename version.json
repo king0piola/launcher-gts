@@ -1,0 +1,9 @@
+{
+  "launcher_version": "1.0.0",
+  "mods_base_url": "https://raw.githubusercontent.com/king0piola/launcher-gts/main/mods/",
+  "mods": [
+    "mod1.jar",
+    "mod2.jar",
+    "mod3.jar"
+  ]
+}
